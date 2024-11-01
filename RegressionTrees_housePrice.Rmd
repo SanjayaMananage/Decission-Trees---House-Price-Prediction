@@ -1,0 +1,367 @@
+---
+title: "Decission Trees - House Price Prediction"
+output: pdf_document
+
+header-includes: 
+   - \usepackage{float}
+   - \floatplacement{figure}{H}
+   - \usepackage{caption}
+   - \captionsetup[figure]{font=scriptsize}
+   - \captionsetup[table]{font=scriptsize}
+geometry: "left=1cm,right=1cm,top=0.5cm,bottom=0.5cm"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+\flushleft
+
+
+
+In this project I consider the California Housing Data (1990) set([https://www.kaggle.com/datasets/harrywang/housing](https://www.kaggle.com/datasets/harrywang/housing)). This data set is created for prediction of median_house_value of California Housings. The data set consists of 10 predictor variables with a sample size of 20433. I take median_house_value as the quantitative response variable. Among the predictors, ocean_proximity is a qualitative variable and treat others as quantitative variables. I consider all the data as training data. 
+
+Additionally for all the models, I use 5-Fold cross-validation to compute the estimated test MSE.
+
+
+```{r echo=FALSE}
+housePrice.data<-read.csv("housePricePrediction.csv")##Read training data set
+attach(housePrice.data)## Attach the data set
+housePrice.data$ocean_proximity<-as.factor(housePrice.data$ocean_proximity)##Factor the variable ocean_proximity
+```
+
+## Fit a decision tree to the data and summarize the results.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+library(tree)
+housePrice.tree <- tree(median_house_value ~ ., data=housePrice.data)
+sumry<-summary(housePrice.tree)
+sumry
+```
+The Variables actually used in tree construction are "median_income" "ocean_proximity", and "longitude". There are 8 nodes and residual mean deviance is 5.657e+09. The distribution of residuals is given below.
+
+
+```{r}
+summary(sumry$residuals)
+```
+
+\begin{table}[H]
+\centering
+\begin{tabular}{rrrrrr}
+\hline
+ Min. & 1st Qu.&  Median   & Mean &3rd Qu.  &  Max. \\
+\hline
+-357342 & -45242 &  -12864  &     0  &  32636 & 408944\\
+\hline
+\end{tabular}
+\caption{The distribution of residuals}
+\end{table}
+
+
+```{r,echo=FALSE,fig.align="center",fig.cap="Regression tree for housePrice data",  out.width = "100%"}
+# Plot the tree
+plot(housePrice.tree)
+text(housePrice.tree, pretty = 0, cex = 0.5)
+```
+
+Let $R_j$ be the partitions of the predictor space.
+
+$$
+\begin{aligned}
+R_1 &=\{X \mid median\_income < 3.03555, ocean\_proximity = INLAND \} \\
+R_2 &=\{X \mid 3.03555 \le median\_income < 5.07535,ocean\_proximity = INLAND \} \\
+R_3 &=\{X \mid median\_income < 3.10635,ocean\_proximity =NOT\_INLAND  \} \\
+R_4 &=\{X \mid 3.10635 \le median\_income < 5.07535,ocean\_proximity = NOT\_INLAND,longitude < -118.275  \} \\
+R_5 &=\{X \mid 3.10635 \le median\_income < 5.07535,ocean\_proximity = NOT\_INLAND, -118.275 \le longitude \} \\
+R_6 &=\{X \mid 5.07535 \le median\_income < 6.88695,ocean\_proximity = INLAND\} \\
+R_7 &=\{X \mid 5.07535 \le median\_income < 6.88695,ocean\_proximity = NOT\_INLAND \} \\
+R_8 &=\{X \mid  6.88695 \le median\_income \} \\
+\end{aligned}
+$$
+
+
+```{r,warning=FALSE,message=FALSE}
+library(rpart)
+library(caret)
+set.seed(1)
+K_fold_a<-function(data,k=5){
+# Create the folds
+folds <- createFolds(data$median_house_value, k = k, list = TRUE, returnTrain = FALSE)
+
+# Initialize a vector to store the evaluation metric values
+evaluation_metrics <- c()
+
+# Loop over the folds
+for (fold in folds) {
+  # Split the data into training and test sets
+  train_data <- data[-fold, ]
+  test_data <- data[fold, ]
+  
+  # Fit the regression tree model on the training data
+  fit <- tree(median_house_value ~ ., data = train_data)
+  
+  # Predict the target variable on the test data
+  predictions <- predict(fit, newdata = test_data)
+  
+  # Calculate the evaluation metric(s) of interest
+  evaluation_metric <- mean((predictions - test_data$median_house_value)^2)  # MSE as an example
+  evaluation_metrics <- c(evaluation_metrics, evaluation_metric)
+}
+
+# Compute the average evaluation metric across all folds
+average_metric <- mean(evaluation_metrics)
+return(average_metric)
+}
+
+test.MSE<-K_fold_a(data=housePrice.data)
+test.MSE
+
+```
+The test MSE using 5-Fold cross validation is 5661830485.
+
+## Use 5-Fold cross validation to determine whether pruning is helpful and determine the optimal size for the pruned tree. 
+
+```{r include=FALSE}
+set.seed(1)
+housePrice.cv <- cv.tree(housePrice.tree, FUN = prune.tree, K=10)
+best.pruned<-housePrice.cv$size[which.min(housePrice.cv$dev)]
+```
+
+```{r,echo=FALSE,fig.align="center",fig.cap="Plot the estimated test error rate",  out.width = "100%"}
+plot(housePrice.cv$size, housePrice.cv$dev, type = "b")
+```
+
+```{r,echo=FALSE,fig.align="center",fig.cap="Regression prune Tree for cancer data",  out.width = "100%"}
+## best pruned tree
+housePrice.prune <- prune.tree(housePrice.tree, best = 5,method = "deviance")
+#summary(housePrice.prune)
+plot(housePrice.prune)
+text(housePrice.prune, pretty = 0)
+```
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+library(rpart)
+library(caret)
+```
+
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+set.seed(1)
+K_fold_b<-function(data,k=5){
+  
+  # Create the folds
+folds <- createFolds(data$median_house_value, k = k, list = TRUE, returnTrain = FALSE)
+
+# Initialize a vector to store the evaluation metric values
+evaluation_metrics <- c()
+
+# Loop over the folds
+for (fold in folds) {
+  # Split the data into training and test sets
+  train_data <- data[-fold, ]
+  test_data <- data[fold, ]
+  
+  # Fit the regression tree model on the training data
+  fit1b <- prune.tree(housePrice.tree, best = 5,method = "deviance",newdata = train_data)
+  
+  # Predict the target variable on the test data
+  predictions <- predict(fit1b, newdata = test_data)
+  
+  # Calculate the evaluation metric(s) of interest
+  evaluation_metric <- mean((predictions - test_data$median_house_value)^2)  # MSE as an example
+  evaluation_metrics <- c(evaluation_metrics, evaluation_metric)
+}
+
+# Compute the average evaluation metric across all folds
+average_metric <- mean(evaluation_metrics)
+return(average_metric)
+
+}
+test.MSE1b<-K_fold_b(data=housePrice.data)
+test.MSE1b
+```
+
+The pruned tree has five(5) terminal nodes(Figure 2) and the actual used variable in tree construction are "median_income", "ocean_proximity"(See Figure 3) and they are seem to be most important predictors. Using 5-fold cross validation method the test MSE for pruned tree with five terminal nodes is 6205063791. Test MSE is greater than the un-pruned tree .
+
+## Use a bagging approach to analyze the data with $B = 1000$. 
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE}
+library(randomForest)
+library(ggplot2)
+```
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE}
+set.seed(1)
+housePrice.bag <- randomForest(median_house_value ~ ., data = housePrice.data, ntree = 1000, importance = TRUE)
+importance(housePrice.bag)
+```
+```{r,echo=FALSE,fig.align="center",fig.cap="Variable importance measure for each predictor (Bagging)",  out.width = "100%"}
+varImpPlot(housePrice.bag)
+```
+
+
+```{r include=FALSE}
+library(caret)
+set.seed(1)
+K_fold_c<-function(data,k=5){
+  
+  # Create the folds
+folds <- createFolds(data$median_house_value, k = k, list = TRUE, returnTrain = FALSE)
+
+# Initialize a vector to store the evaluation metric values
+evaluation_metrics <- c()
+
+# Loop over the folds
+for (fold in folds) {
+  # Split the data into training and test sets
+  train_data <- data[-fold, ]
+  test_data <- data[fold, ]
+  
+  # Fit the regression tree model on the training data
+  fit1c <- randomForest(median_house_value ~ ., data = train_data, ntree = 1000, importance = TRUE)
+  
+  # Predict the target variable on the test data
+  predictions <- predict(fit1c, newdata = test_data)
+  
+  # Calculate the evaluation metric(s) of interest
+  evaluation_metric <- mean((predictions - test_data$median_house_value)^2)  # MSE as an example
+  evaluation_metrics <- c(evaluation_metrics, evaluation_metric)
+}
+
+# Compute the average evaluation metric across all folds
+average_metric <- mean(evaluation_metrics)
+return(average_metric)
+}
+test.MSE1c<-K_fold_c(data=housePrice.data)
+test.MSE1c
+```
+
+Using bagging approach with $B=1000$, the Node purity plot (Figure 4) shows that the variables "median_income"(IncNodePurity=1.050356e+14) and ocean_proximity(IncNodePurity=  4.202972e+13) are the most important predictors. And the test MSE using 5-Fold cross validation method is 2362805450.
+
+## Use a random forest approach to analyze the data with $B = 1000$ and $m \approx p/3$. 
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE}
+set.seed(1)
+housePrice.forest <- randomForest(median_house_value ~ ., data = housePrice.data,
+	mtry = 9/3, ntree = 1000, importance = TRUE)
+importance(housePrice.forest)
+```
+
+
+```{r,echo=FALSE,fig.align="center",fig.cap="Variable importance measure for each predictor (Random forest)",  out.width = "100%"}
+varImpPlot(housePrice.forest)
+```
+
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(caret)
+set.seed(1)
+K_fold_d<-function(data,k=5){
+  
+  # Create the folds
+folds <- createFolds(data$median_house_value, k = k, list = TRUE, returnTrain = FALSE)
+
+# Initialize a vector to store the evaluation metric values
+evaluation_metrics <- c()
+
+# Loop over the folds
+for (fold in folds) {
+  # Split the data into training and test sets
+  train_data <- data[-fold, ]
+  test_data <- data[fold, ]
+  
+  # Fit the regression tree model on the training data
+  fit1d <- randomForest(median_house_value ~ ., data = train_data,
+	mtry = 9/3, ntree = 1000, importance = TRUE)
+  
+  # Predict the target variable on the test data
+  predictions <- predict(fit1d, newdata = test_data)
+  
+  # Calculate the evaluation metric(s) of interest
+  evaluation_metric <- mean((predictions - test_data$median_house_value)^2)  # MSE as an example
+  evaluation_metrics <- c(evaluation_metrics, evaluation_metric)
+}
+
+# Compute the average evaluation metric across all folds
+average_metric <- mean(evaluation_metrics)
+return(average_metric)
+}
+
+test.MSE1d<-K_fold_d(data=housePrice.data)
+test.MSE1d
+```
+
+
+Using random forest approach with $B=1000$ the Node purity plot (Figure 5) shows that the variables "median_income "(IncNodePurity=1.050356e+14) is most important predictor. And the test MSE using 5-Fold cross validation method is 2362805450.
+
+## Use a boosting approach to analyze the data with $B = 1000$, $d = 1$, and $\lambda = 0.01$. 
+
+```{r, include=FALSE}
+library(gbm)
+```
+
+```{r, include=FALSE}
+set.seed(1)
+housePrice.boost <- gbm(median_house_value ~ ., data = housePrice.data, distribution = "gaussian", n.trees = 1000, interaction.depth = 1,shrinkage = 0.01, verbose = F)
+```
+
+```{r,echo=FALSE,fig.cap="Relative influence Plot",fig.align="center", out.width = "80%"}
+x<-summary(housePrice.boost)
+x
+```
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+set.seed(1)
+K_fold_e<-function(data,k=5){
+  
+  # Create the folds
+folds <- createFolds(data$median_house_value, k = k, list = TRUE, returnTrain = FALSE)
+
+# Initialize a vector to store the evaluation metric values
+evaluation_metrics <- c()
+
+# Loop over the folds
+for (fold in folds) {
+  # Split the data into training and test sets
+  train_data <- data[-fold, ]
+  test_data <- data[fold, ]
+  
+  # Fit the regression tree model on the training data
+  fit1e<- gbm(median_house_value ~ ., data = train_data, distribution = "gaussian", n.trees = 1000, interaction.depth = 1,shrinkage = 0.01, verbose = F)
+  
+  # Predict the target variable on the test data
+  predictions <- predict(fit1e, newdata = test_data)
+  
+  # Calculate the evaluation metric(s) of interest
+  evaluation_metric <- mean((predictions - test_data$median_house_value)^2)  # MSE as an example
+  evaluation_metrics <- c(evaluation_metrics, evaluation_metric)
+}
+
+# Compute the average evaluation metric across all folds
+average_metric <- mean(evaluation_metrics)
+return(average_metric)
+}
+
+
+test.MSE1e<-K_fold_e(data=housePrice.data)
+test.MSE1e
+```
+
+Using boosting approach with $B=1000$, $d=1$ and $\lambda=0.01$, according to the Relative influence plot (Figure 6) it shows that the variables "	median_income" (rel.inf=68.024004517) and "ocean_proximity	" (rel.inf=	24.089808146)  are most important predictors. And the test MSE using 5-Fold cross validation method is 4886484198.
+
+## Finnally I compare the results from the various methods. 
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|r|r|r|r|r|r|}
+\hline
+  & un-pruned tree &  pruned tree   & bagging & random-forest  & boosting  \\
+\hline
+Test MSE & 5661830485 &  6205063791 &   2362805450 & 2362805450 &  4886484198  \\
+\hline
+\end{tabular}
+\caption{Test MSE for different approches}
+\end{table}
+
+When consider the four different approaches discussed above, pruned tree approach gives large test MSE(6205063791) and bagging approach gives the small test MSE(2307717850). So bagging approach should be recommended to analyse California Housing Data.
+
